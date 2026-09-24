@@ -36,7 +36,7 @@ Thank you for your interest in contributing to PermLint!
 
 PermLint performs single-pass traversal over the target repository. Checks must remain independent, deterministic, and safe.
 
-### Current v0.1.0 Rules:
+### Current v0.1.1 Rules:
 - **PL001**: Shebang but not executable (`ERROR`)
 - **PL002**: Executable script without shebang (`WARN`)
 - **PL003**: Unexpected executable data/document file (`WARN`)

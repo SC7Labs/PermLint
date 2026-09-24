@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import stat
+
 from permlint.checks.base import BaseCheck
 from permlint.filesystem import FileInfo
 from permlint.models import Finding, Severity
@@ -20,7 +22,8 @@ class GitModeMismatchCheck(BaseCheck):
             return None
 
         git_is_executable = file_info.git_index_mode == "100755"
-        working_is_executable = file_info.is_executable
+        # Git's 100755/100644 distinction follows the owner execute bit.
+        working_is_executable = bool(file_info.mode & stat.S_IXUSR)
 
         if git_is_executable != working_is_executable:
             return Finding(

@@ -23,7 +23,7 @@ def test_render_clean_report() -> None:
     render_report(result, console=console)
 
     rendered = output.getvalue()
-    assert "PermLint 0.1.0" in rendered
+    assert "PermLint 0.1.1" in rendered
     assert "Scanning: /path/to/project" in rendered
     assert "42 files inspected" in rendered
     assert "No issues found." in rendered
@@ -55,7 +55,7 @@ def test_render_report_with_findings() -> None:
     render_report(result, console=console)
 
     rendered = output.getvalue()
-    assert "PermLint 0.1.0" in rendered
+    assert "PermLint 0.1.1" in rendered
     assert "Scanning: /path/to/project" in rendered
     assert "PL001 ERROR" in rendered
     assert "scripts/deploy.sh" in rendered

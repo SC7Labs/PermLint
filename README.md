@@ -73,7 +73,7 @@ permlint --version
 ### Clean Repository
 
 ```text
-PermLint 0.1.0
+PermLint 0.1.1
 Scanning: /path/to/project
 
 ✓ 137 files inspected
@@ -84,7 +84,7 @@ No issues found.
 ### Issues Discovered
 
 ```text
-PermLint 0.1.0
+PermLint 0.1.1
 Scanning: /path/to/project
 
 PL001 ERROR  scripts/deploy.sh
@@ -122,7 +122,7 @@ Warnings: 4
 
 ## Rules (Checks)
 
-PermLint v0.1.0 implements exactly 8 primary checks:
+PermLint v0.1.1 implements exactly 8 primary checks:
 
 | Rule ID | Severity | Name | Description |
 | :--- | :--- | :--- | :--- |
@@ -132,7 +132,7 @@ PermLint v0.1.0 implements exactly 8 primary checks:
 | **PL004** | `ERROR` | World-writable file | Regular repository file has the world/other write bit (`S_IWOTH`, `0o002`) set. |
 | **PL005** | `WARN` | Sensitive-looking file has broad permissions | File with a private-key-like name (`id_rsa`, `id_ed25519`, `*.key`, `*private*.pem`) is accessible by group or other users (`0o077`). *Note: This is a conservative filename-based heuristic, not a content scanner.* |
 | **PL006** | `ERROR` | Malformed shebang | File begins with `#!` but has a malformed or unusable shebang line (e.g. empty or non-absolute interpreter path). |
-| **PL007** | `WARN` | Git executable-bit mismatch | Working-tree executable status differs from the recorded Git staged index mode (`100644` vs `100755`). *Applies only to tracked files in Git repositories.* |
+| **PL007** | `WARN` | Git executable-bit mismatch | Working-tree owner execute bit differs from the recorded Git staged index mode (`100644` vs `100755`). *Applies only to tracked files in Git repositories.* |
 | **PL008** | `ERROR` | Unexpected privilege bits | Regular file has setuid (`S_ISUID`, `0o4000`) or setgid (`S_ISGID`, `0o2000`) permission bits set. |
 
 ### Severity Guidelines

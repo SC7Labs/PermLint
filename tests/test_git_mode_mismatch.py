@@ -85,6 +85,36 @@ def test_git_mismatch_index_executable_disk_non_executable(tmp_path: Path) -> No
 
 
 @pytest.mark.skipif(not HAS_GIT, reason="git executable not found")
+@pytest.mark.parametrize(
+    ("staged_mode", "git_mode", "expect_mismatch"),
+    [(0o654, "100644", False), (0o755, "100755", True)],
+)
+def test_git_mismatch_uses_owner_execute_bit(
+    tmp_path: Path, staged_mode: int, git_mode: str, expect_mismatch: bool
+) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
+    script = tmp_path / "tool.sh"
+    script.write_text("#!/bin/sh\n")
+    script.chmod(staged_mode)
+    subprocess.run(["git", "add", "tool.sh"], cwd=tmp_path, capture_output=True, check=True)
+
+    staged = subprocess.run(
+        ["git", "ls-files", "--stage", "tool.sh"],
+        cwd=tmp_path,
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    assert staged.stdout.split()[0] == git_mode
+
+    # Group execute remains set in both cases, but Git tracks owner execute.
+    script.chmod(0o654)
+    result = Scanner().scan(tmp_path)
+    pl007_findings = [f for f in result.findings if f.check_id == "PL007"]
+    assert bool(pl007_findings) is expect_mismatch
+
+
+@pytest.mark.skipif(not HAS_GIT, reason="git executable not found")
 def test_git_untracked_file_no_pl007(tmp_path: Path) -> None:
     subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True, check=True)
 
