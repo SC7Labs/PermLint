@@ -187,9 +187,9 @@ def test_non_repository_says_so_without_calling_the_scan_incomplete(tmp_path: Pa
     render_report(result)
     output = capsys.readouterr().out
 
-    assert "PL007" in output
+    assert "Git index checks" in output
     assert "Not a Git repository" in output
-    assert "does not apply" in output
+    assert "do not apply" in output
     assert "Scan was incomplete" not in output
     assert result.diagnostics.is_complete
     assert result.exit_code == 0

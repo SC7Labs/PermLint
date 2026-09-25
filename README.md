@@ -1,254 +1,144 @@
 # PermLint
 
-**Catch permission mistakes before they ship.**
+**Audit what a Unix file can do, what Git will commit, and which executable-bit mistakes can be repaired safely.**
 
-PermLint is a lightweight CLI that scans repositories for suspicious Unix file-permission mistakes.
+PermLint is a command-line permission auditor for source trees. A script can run on your machine while Git still records it as non-executable; a data file can carry an accidental execute bit into a commit. PermLint compares the working tree with the Git index, checks file evidence such as shebangs and known data formats, and offers a preview before changing anything.
 
----
+PermLint focuses on permission correctness and repository hygiene. It does not run discovered files, inspect secrets, or claim to find every security problem.
 
-## Overview
+## Install
 
-Unix file permission bits (e.g., `chmod +x` / mode `0755` vs `0644`, world-writability, or privilege bits) are often committed accidentally or forgotten during development. A deployment script missing its executable bit fails in CI or production, while executable configuration files or world-writable assets introduce security risks and version-control noise.
+Python 3.12 or newer and a POSIX filesystem are required. Version 0.2.0 is available from this source checkout; there is no published PyPI package or automatic update channel yet.
 
-PermLint inspects repository files deterministically and reports permission inconsistencies before they ship.
-
-### What PermLint Does
-- Recursively scans repository files in a single, safe traversal pass.
-- Evaluates 8 primary permission rules covering execution, writability, privilege bits, and Git index consistency.
-- Inspects Git index modes once at scan startup to catch staged vs working-tree discrepancies.
-- Skips a **fixed built-in list** of directory names (`.git`, `.hg`, `.svn`, `.venv`, `venv`, `node_modules`, `vendor`, `dist`, `build`, `__pycache__`, and similar) without following directory symlinks or symlink loops. PermLint does **not** read `.gitignore` and does not implement gitignore semantics — the list is hard-coded in `DEFAULT_IGNORE_DIRS`.
-
-### What PermLint Does NOT Do
-PermLint is intentionally focused and does one job well. It is **not**:
-- A vulnerability scanner or CVE database.
-- A secret scanner or malware detector (no content scanning for secrets).
-- An automated `chmod` modification tool (it will never modify your files).
-- A Windows ACL auditor.
-
----
-
-## Installation for Development
-
-PermLint requires **Python 3.12+**.
-
-From a clone of this repository, install in editable mode with development
-dependencies:
-
-```bash
-pip install -e ".[dev]"
-```
-
-Verify installation:
-
-```bash
+~~~sh
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install .
 permlint --version
-```
+~~~
 
----
+A `.venv` inside the scan root is scanned by default. Add `.venv/**` to the project's exclusions if you want to omit it.
 
-## Usage
+To update an installation from a local 0.2.0 wheel:
 
-Scan the current working directory:
+~~~sh
+python -m pip install --upgrade build
+python -m build
+python -m pip install --upgrade dist/permlint-0.2.0-py3-none-any.whl
+~~~
 
-```bash
-permlint .
-```
+The installed command is a copy of the package. Editing a checkout does not update an existing non-editable installation. For development, use `python -m pip install -e ".[dev]"`. The `permlint upgrade` command exits 2 with installation guidance; it does not download or execute remote code.
 
-Scan a specific repository or directory:
+## Start here
 
-```bash
-permlint /path/to/project
-```
+Run these commands from the directory you want to inspect:
 
-Display the version:
+~~~sh
+permlint                         # scan the current directory
+permlint /path/to/repository     # legacy positional form
+permlint scan /path/to/repository
+permlint scan --summary /path/to/repository  # compact counts for large trees
+permlint fix --dry-run           # preview deterministic repairs
+permlint fix                     # apply them
+permlint explain PL007           # understand a rule
+~~~
 
-```bash
-permlint --version
-```
+A targeted repair can be requested with `permlint fix scripts/deploy.sh`. Run `permlint -h` or `permlint --help` for the complete command reference.
 
----
+A dry run prints the proposed filesystem and Git index modes and leaves both unchanged. The apply command rechecks file and index state before each repair. It reports files that changed, files that need manual review, and any operation that failed. Review staged mode changes with `git diff --cached --summary` before committing.
 
-## Example Output
+## Why the Git index matters
 
-### Clean Repository
+Git stores regular tracked files as mode `100644` or `100755`; the distinction follows the **owner execute bit**. It does not store every Unix read/write permission. PermLint compares that index state with the filesystem and with evidence about the file's purpose.
 
-```text
-PermLint 0.1.1
-Scanning: /path/to/project
+| Evidence | What PermLint reports |
+| --- | --- |
+| Valid shebang, no owner execute bit | PL001: the script looks runnable but cannot be executed directly |
+| Filesystem owner execute bit differs from Git | PL007: the checkout and the next commit disagree |
+| Known data or documentation format has execute bits | PL003: execution is unexpected |
+| Executable script has no shebang | PL002: possible portability issue; intent needs review |
 
-✓ 137 files inspected
+Tracked files use both filesystem and index information. Untracked files still receive filesystem checks, and ordinary non-Git directories are valid scan targets. A mismatch alone does not reveal which side is correct, so PermLint leaves ambiguous cases for manual review.
 
-No issues found.
-```
+PermLint scans the requested tree, including large vendored or upstream directories. Only version-control metadata directories (`.git`, `.hg`, `.svn`) are skipped automatically. Use explicit exclusions for project-specific generated trees.
 
-### Issues Discovered
+## Repairs and safety
 
-```text
-PermLint 0.1.1
-Scanning: /path/to/project
+Automatic repairs are deliberately narrow:
 
-PL001 ERROR  scripts/deploy.sh
-             Has a shebang but is not executable
+| Strong evidence | Filesystem action | Tracked Git action |
+| --- | --- | --- |
+| Valid shebang script should be executable | Add owner execute bit | Set index mode to 100755 |
+| Known text/data/document format is executable, has no shebang, and is readable non-binary content | Remove execute bits | Set index mode to 100644 |
 
-PL002 WARN   tools/migrate.py
-             Executable text file has no shebang
+If the filesystem or index already has the expected state, only the other side changes. For an untracked file or non-Git directory, only the filesystem changes. Tracked repairs update an alternate index under Git's index lock, preserve the staged blob IDs, and replace the index atomically. They do not stage file contents, unrelated changes, or a commit.
 
-PL003 WARN   config/settings.yaml
-             File type normally should not be executable
+A bare mismatch with no strong intent evidence, an unreadable or changing file, a symlink, a multiply linked file, an unmerged Git entry, or an unexpected file type is not an automatic repair. Before changing a tracked index mode, PermLint also checks that the staged blob supports the same executable intent as the working file. Entries with special Git index flags and files inside nested repositories need manual review. Findings about world-writable files, sensitive-looking names, malformed shebangs, and privilege bits remain review items. Filesystem repairs stay inside the requested root; a tracked repair also updates the containing repository's Git index. State is rechecked when applying each repair.
 
-PL004 ERROR  data/shared.csv
-             File is writable by all users
+## Rules
 
-PL005 WARN   keys/id_ed25519
-             Sensitive-looking file is accessible by group or other users
+| Rule | Default severity | Meaning |
+| --- | --- | --- |
+| PL001 | Error | Valid shebang without owner execute permission |
+| PL002 | Warning | Executable script-like text without a shebang |
+| PL003 | Warning | Executable data or documentation file |
+| PL004 | Error | World-writable regular file |
+| PL005 | Warning | Sensitive-looking filename with broad permissions |
+| PL006 | Error | Malformed shebang |
+| PL007 | Warning | Working-tree owner execute bit differs from Git index |
+| PL008 | Error | Setuid or setgid bit on a regular file |
 
-PL006 ERROR  scripts/broken.sh
-             Malformed shebang
+Use `permlint explain PL001` for trigger conditions, rationale, repair policy, and edge cases. Filename and extension checks are heuristics: a `.py` suffix alone does not prove that a file should be executable.
 
-PL007 WARN   scripts/run.sh
-             Working tree executable bit does not match Git index
+## Configuration
 
-PL008 ERROR  bin/daemon
-             Regular file has setuid/setgid permission bits
+Put `.permlint.toml` at the scan root, or provide a file with `--config`:
 
-Files inspected: 137
-Errors: 4
-Warnings: 4
+~~~toml
+exclude = [".venv/**", "node_modules/**", "generated/**"]
+disabled_rules = ["PL002"]
+fail_on = "warning"
+fix_git_index = true
 
-8 issues found
-```
+[severity_overrides]
+PL007 = "error"
+~~~
 
----
+Exclusions are explicit glob patterns. A pattern with a slash is rooted at the scan directory; a bare name or pattern matches a path segment at any depth. For example, `generated/**` prunes that root-level tree, while `*.secret` matches files with that suffix anywhere. These are PermLint patterns, not Git ignore rules. A relative `--config FILE` path is resolved from the scan root. Disabling a rule removes its findings; a severity override changes the level used in reports and policy evaluation. Set `fail_on = "error"` to report warnings without making them fail CI. Set `fix_git_index = false` to prevent the fixer from changing tracked Git metadata. Unknown or malformed configuration is an error, not a silent fallback.
 
-## Rules (Checks)
+## CI and machine output
 
-PermLint v0.1.1 implements exactly 8 primary checks:
+Text is the default. It lists every finding; `--summary` gives a compact rule breakdown and diagnostics for large trees without changing the scan or exit code. JSON is deterministic and suitable for scripts; SARIF 2.1.0 has file-level locations and rule descriptions for code scanning:
 
-| Rule ID | Severity | Name | Description |
-| :--- | :--- | :--- | :--- |
-| **PL001** | `ERROR` | Shebang but not executable | Script file begins with a valid shebang (`#!`) but has no executable permission bits set. |
-| **PL002** | `WARN` | Executable script without shebang | Recognized script file (`.py`, `.sh`, `.js`, etc.) is marked executable but missing a shebang line. |
-| **PL003** | `WARN` | Unexpected executable data/document file | Data, configuration, or documentation file (`.md`, `.yaml`, `.json`, `.toml`, etc.) has executable permission bits set. |
-| **PL004** | `ERROR` | World-writable file | Regular repository file has the world/other write bit (`S_IWOTH`, `0o002`) set. |
-| **PL005** | `WARN` | Sensitive-looking file has broad permissions | File with a private-key-like name (`id_rsa`, `id_ed25519`, `*.key`, `*private*.pem`) is accessible by group or other users (`0o077`). *Note: This is a conservative filename-based heuristic, not a content scanner.* |
-| **PL006** | `ERROR` | Malformed shebang | File begins with `#!` but has a malformed or unusable shebang line (e.g. empty or non-absolute interpreter path). |
-| **PL007** | `WARN` | Git executable-bit mismatch | Working-tree owner execute bit differs from the recorded Git staged index mode (`100644` vs `100755`). *Applies only to tracked files in Git repositories.* |
-| **PL008** | `ERROR` | Unexpected privilege bits | Regular file has setuid (`S_ISUID`, `0o4000`) or setgid (`S_ISGID`, `0o2000`) permission bits set. |
+~~~sh
+permlint scan --format json . > permlint.json
+permlint scan --format sarif . > permlint.sarif
+~~~
 
-### Severity Guidelines
-- **`ERROR`**: Serious or broken permission state that will likely cause execution failure or security misconfigurations (PL001, PL004, PL006, PL008).
-- **`WARN`**: Suspicious or inconsistent permission state that may cause subtle cross-platform or repository issues (PL002, PL003, PL005, PL007).
+JSON schema version 1 contains `tool`, `target`, `summary`, `diagnostics`, and `findings`. The `target` is the absolute scan path, so documents from different checkouts need not be byte-identical. The summary includes scanned-file, error, warning, available-fix, manual-review, completion, and exit-code fields. Each finding includes its rule ID, relative path, severity, message, filesystem and Git modes when applicable, and whether an automatic fix is available. No timestamps or host-specific ordering are added.
 
----
+A CI step can simply run `permlint scan .`; nonzero status fails the step. If you need to upload SARIF even when findings exist, preserve the command's exit status while uploading the generated file.
 
-## Exit Codes
+| Exit | Meaning |
+| --- | --- |
+| 0 | Complete scan; no findings at or above the configured failure threshold |
+| 1 | Complete scan; policy findings remain |
+| 2 | Invalid input, configuration/runtime error, or incomplete scan |
 
-PermLint uses explicit exit codes suitable for CI/CD pipelines:
+An incomplete scan is never presented as clean. Unreadable files or directories and unavailable Git index data where Git applies are reported in diagnostics. A non-Git directory has no index to compare and is not incomplete for that reason.
 
-| Exit Code | Meaning | Description |
-| :--- | :--- | :--- |
-| `0` | **Success** | Scan completed successfully with no permission findings. |
-| `1` | **Findings Exist** | Scan completed and one or more permission findings (errors or warnings) were detected. |
-| `2` | **Error / Invalid Input** | Invalid target path (nonexistent or a file), scanner error, or runtime failure. |
+## Limits and development
 
----
+PermLint is designed for POSIX permission bits on Linux, macOS, and similar systems. Windows ACLs and cross-platform checkout mode behavior are outside its scope. Git's index records the execute distinction, not full `chmod` modes. Permissions can change concurrently, so the fixer rechecks state and reports failures instead of claiming a repair it could not complete.
 
-## Supported Platforms & POSIX Limitations
+For development and release checks:
 
-PermLint is designed for POSIX-compliant filesystems (Linux, macOS, BSD).
-
-> **Note on Windows:** Windows filesystems and Git checkouts do not share POSIX permission bit semantics. While PermLint runs on Python across platforms, its permission checks inspect standard POSIX mode bits (`stat.S_IXUSR`, `stat.S_IWOTH`, etc.).
-
----
-
-## Incomplete Scans
-
-The filesystem does not always cooperate, and a scan that could not look at
-something is not a clean scan. PermLint never turns "unknown" into "fine":
-
-- A file whose contents cannot be read produces **no** content-based finding.
-  PL001, PL002 and PL006 all decline to conclude anything rather than assert
-  that a file it could not open has no shebang.
-- Entries that cannot be inspected during traversal are counted.
-- PL007 compares working-tree modes against the Git index. When the index is
-  unavailable — no `git` on `PATH`, not a repository, or a failed command —
-  that is reported as its own state rather than as "no mismatches".
-
-Anything the scan missed is printed under **Scan was incomplete**, including on
-runs that found no issues:
-
-```text
-✓ 12 files inspected
-
-No issues found.
-
-Scan was incomplete:
-  • Git index comparison (PL007) did not run: not a Git repository
-  • 1 file could not be read; content checks were skipped for them
-```
-
-Programmatically the same information is on `ScanResult.diagnostics`
-(`git_index_status`, `entries_skipped`, `files_unreadable`, `is_complete`).
-
----
-
-## Using PermLint as a Library
-
-```python
-from pathlib import Path
-from permlint.scanner import InvalidTargetError, Scanner
-
-try:
-    result = Scanner().scan(Path("some/repository"))
-except InvalidTargetError as exc:
-    ...  # missing path, not a directory, or unreadable directory
-
-for finding in result.findings:
-    print(finding.check_id, finding.path, finding.message)
-```
-
-`Scanner.scan()` validates its own target and raises `InvalidTargetError`
-rather than returning an empty result. The CLI does not validate separately, so
-the library and the command line cannot disagree about what a valid target is.
-
----
-
-## What This Guarantees
-
-- **No file modifications.** PermLint is read-only and never alters file modes.
-- **No target code execution.** Discovered files and shebang interpreters are
-  never executed, imported, or evaluated.
-- **Bounded I/O.** Shebang and binary heuristics read only the first chunk of a
-  file (≤ 1024 bytes); nothing reads a file whole.
-- **No shell.** Git metadata is collected with an explicit argument array, a
-  fixed timeout, and `shell=False`.
-- **No symlink following.** Traversal does not follow file or directory
-  symlinks.
-
-Each of these is covered by tests in `tests/` — see `test_traversal.py` and
-`test_scan_integrity.py` in particular.
-
----
-
-## Development & Quality Assurance
-
-```bash
-# Run test suite
+~~~sh
+python -m pip install -e ".[dev]"
 python -m pytest
-
-# Run Ruff linter and formatting checks
 ruff check .
 ruff format --check .
-```
+python -m build
+~~~
 
----
-
-## Contributing
-
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for development workflows and check guidelines.
-
----
-
-## License
-
-PermLint is licensed under the [MIT License](LICENSE).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for change guidelines and [real-world validation](docs/real-world-validation.md) for large-tree results. PermLint is licensed under [MIT](LICENSE).

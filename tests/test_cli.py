@@ -14,11 +14,11 @@ runner = CliRunner()
 def test_cli_version_flag() -> None:
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert "PermLint 0.1.1" in result.output
+    assert "PermLint 0.2.0" in result.output
 
     result_short = runner.invoke(app, ["-V"])
     assert result_short.exit_code == 0
-    assert "PermLint 0.1.1" in result_short.output
+    assert "PermLint 0.2.0" in result_short.output
 
 
 def test_cli_clean_repository(tmp_path: Path) -> None:

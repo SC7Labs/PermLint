@@ -62,25 +62,25 @@ def test_non_git_directory_still_exits_zero() -> None:
     assert _result(git_index_status=GitIndexStatus.NOT_A_REPOSITORY).exit_code == 0
 
 
-def test_git_unavailable_exits_one() -> None:
+def test_git_unavailable_exits_two() -> None:
     """Regression: this printed "Scan was incomplete" and still exited 0."""
-    assert _result(git_index_status=GitIndexStatus.GIT_UNAVAILABLE).exit_code == 1
+    assert _result(git_index_status=GitIndexStatus.GIT_UNAVAILABLE).exit_code == 2
 
 
-def test_git_error_exits_one() -> None:
-    assert _result(git_index_status=GitIndexStatus.ERROR).exit_code == 1
+def test_git_error_exits_two() -> None:
+    assert _result(git_index_status=GitIndexStatus.ERROR).exit_code == 2
 
 
-def test_skipped_directory_exits_one() -> None:
-    assert _result(git_index_status=GitIndexStatus.AVAILABLE, directories_skipped=1).exit_code == 1
+def test_skipped_directory_exits_two() -> None:
+    assert _result(git_index_status=GitIndexStatus.AVAILABLE, directories_skipped=1).exit_code == 2
 
 
-def test_unreadable_file_exits_one() -> None:
-    assert _result(git_index_status=GitIndexStatus.AVAILABLE, files_unreadable=1).exit_code == 1
+def test_unreadable_file_exits_two() -> None:
+    assert _result(git_index_status=GitIndexStatus.AVAILABLE, files_unreadable=1).exit_code == 2
 
 
-def test_skipped_entry_exits_one() -> None:
-    assert _result(git_index_status=GitIndexStatus.AVAILABLE, entries_skipped=1).exit_code == 1
+def test_skipped_entry_exits_two() -> None:
+    assert _result(git_index_status=GitIndexStatus.AVAILABLE, entries_skipped=1).exit_code == 2
 
 
 def test_findings_exit_one_even_when_complete(tmp_path: Path) -> None:
@@ -99,7 +99,7 @@ def test_cli_exit_codes_come_from_the_result(tmp_path: Path, monkeypatch) -> Non
     (tmp_path / "a.txt").chmod(0o644)
 
     result = runner.invoke(app, [str(tmp_path)])
-    assert result.exit_code == 1, "git unavailable is an incomplete scan"
+    assert result.exit_code == 2, "git unavailable is an incomplete scan"
 
 
 def test_cli_invalid_target_exits_two(tmp_path: Path) -> None:
@@ -124,7 +124,7 @@ def test_non_git_directory_is_not_called_incomplete(tmp_path: Path, capsys) -> N
 
     assert result.diagnostics.is_complete
     assert "Scan was incomplete" not in output
-    assert "does not apply" in output
+    assert "do not apply" in output
 
 
 def test_missing_git_is_called_incomplete(tmp_path: Path, capsys, monkeypatch) -> None:
@@ -174,7 +174,7 @@ def test_unreadable_directory_makes_the_scan_incomplete(tmp_path: Path, monkeypa
 
     assert result.diagnostics.directories_skipped == 1
     assert not result.diagnostics.is_complete
-    assert result.exit_code == 1
+    assert result.exit_code == 2
     # And nothing was invented about the files it never saw.
     assert all("hidden" not in str(f.path) for f in result.findings)
 

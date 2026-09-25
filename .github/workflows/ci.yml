@@ -41,3 +41,7 @@ jobs:
       - name: Run pytest
         run: |
           python -m pytest
+
+      - name: Build distributions
+        run: |
+          python -m build

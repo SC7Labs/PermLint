@@ -3,26 +3,9 @@
 from __future__ import annotations
 
 from permlint.checks.base import BaseCheck
+from permlint.checks.intent import DATA_EXTENSIONS, expected_executable
 from permlint.filesystem import FileInfo
 from permlint.models import Finding, Severity
-
-# Obvious non-executable data, configuration, and documentation file extensions
-DATA_EXTENSIONS: frozenset[str] = frozenset(
-    {
-        ".md",
-        ".txt",
-        ".json",
-        ".yaml",
-        ".yml",
-        ".toml",
-        ".ini",
-        ".cfg",
-        ".csv",
-        ".xml",
-        ".tsv",
-        ".rst",
-    }
-)
 
 
 class ExecutableDataFileCheck(BaseCheck):
@@ -40,5 +23,9 @@ class ExecutableDataFileCheck(BaseCheck):
                 path=file_info.rel_path,
                 severity=self.default_severity,
                 message="File type normally should not be executable",
+                filesystem_mode=file_info.mode,
+                git_index_mode=file_info.git_index_mode,
+                expected_executable=expected_executable(file_info),
+                detail="Data or documentation file carries an executable bit.",
             )
         return None

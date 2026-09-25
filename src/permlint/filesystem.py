@@ -1,13 +1,15 @@
 """Filesystem traversal and file inspection utilities for PermLint.
 
 Provides safe, bounded, single-pass traversal of software repositories,
-ignoring standard cache/dependency directories and symlink loops.
+excluding version-control internals and symlink loops. Other exclusions are
+explicit project configuration, so large source trees remain scannable.
 """
 
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+import stat
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,30 +21,9 @@ from permlint.permissions import (
     is_world_writable,
 )
 
-# Standard build, dependency, cache, and VCS directories to skip during traversal.
-DEFAULT_IGNORE_DIRS: frozenset[str] = frozenset(
-    {
-        ".git",
-        ".hg",
-        ".svn",
-        ".venv",
-        "venv",
-        ".env",
-        "node_modules",
-        "vendor",
-        "dist",
-        "build",
-        "__pycache__",
-        ".pytest_cache",
-        ".ruff_cache",
-        ".mypy_cache",
-        ".tox",
-        "target",
-        "coverage",
-        ".coverage",
-        ".eggs",
-    }
-)
+# Version-control metadata is never source material. Everything else, including
+# dependencies and generated trees, is scanned unless explicitly excluded.
+DEFAULT_IGNORE_DIRS: frozenset[str] = frozenset({".git", ".hg", ".svn"})
 
 
 @dataclass(frozen=True)
@@ -94,6 +75,11 @@ class FileInfo:
     def is_executable(self) -> bool:
         """Check whether any Unix executable bit (user, group, or other) is set."""
         return is_executable(self.mode)
+
+    @property
+    def is_owner_executable(self) -> bool:
+        """Git's executable bit corresponds to the working-tree owner bit."""
+        return bool(self.mode & stat.S_IXUSR)
 
     @property
     def is_world_writable(self) -> bool:
@@ -224,13 +210,14 @@ def walk_repository(
     git_index_modes: dict[Path, str] | None = None,
     skipped: list[int] | None = None,
     directories_skipped: list[int] | None = None,
+    is_excluded: Callable[[Path], bool] | None = None,
 ) -> Iterator[FileInfo]:
     """Safely traverse a repository directory and yield FileInfo for regular files.
 
     Guarantees:
     - Does not follow directory symlinks.
     - Does not follow file symlinks.
-    - Prunes ignored directories immediately (no traversal into them).
+    - Prunes VCS internals and explicitly excluded directories immediately.
     - Ignores special files (FIFOs, sockets, devices).
     - Handles permission and filesystem errors gracefully.
 
@@ -244,6 +231,7 @@ def walk_repository(
         directories_skipped: Optional single-element out-parameter; incremented for
             every directory `os.walk` could not enter. Each one hides an entire
             subtree, so this is tracked separately from individual files.
+        is_excluded: Optional predicate for explicitly excluded relative paths.
 
     Yields:
         FileInfo objects for each discovered regular file.
@@ -271,7 +259,9 @@ def walk_repository(
             for d in dirnames
             if d not in ignore_dirs
             and not (dirpath / d).is_symlink()
-            and not d.endswith(".egg-info")
+            and not (
+                is_excluded is not None and is_excluded((dirpath / d).relative_to(resolved_root))
+            )
         ]
 
         # Sort for deterministic traversal order
@@ -280,6 +270,10 @@ def walk_repository(
 
         for filename in filenames:
             file_path = dirpath / filename
+
+            rel_path = file_path.relative_to(resolved_root)
+            if is_excluded is not None and is_excluded(rel_path):
+                continue
 
             # Skip symlinks
             if file_path.is_symlink():
@@ -296,11 +290,6 @@ def walk_repository(
 
             if not is_regular_file(stat_result.st_mode):
                 continue
-
-            try:
-                rel_path = file_path.relative_to(resolved_root)
-            except ValueError:
-                rel_path = file_path
 
             git_mode = git_index_modes.get(rel_path) if git_index_modes is not None else None
 

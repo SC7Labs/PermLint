@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import stat
-
 from permlint.checks.base import BaseCheck
+from permlint.checks.intent import expected_executable
 from permlint.filesystem import FileInfo
 from permlint.models import Finding, Severity
 
@@ -23,7 +22,7 @@ class GitModeMismatchCheck(BaseCheck):
 
         git_is_executable = file_info.git_index_mode == "100755"
         # Git's 100755/100644 distinction follows the owner execute bit.
-        working_is_executable = bool(file_info.mode & stat.S_IXUSR)
+        working_is_executable = file_info.is_owner_executable
 
         if git_is_executable != working_is_executable:
             return Finding(
@@ -31,5 +30,11 @@ class GitModeMismatchCheck(BaseCheck):
                 path=file_info.rel_path,
                 severity=self.default_severity,
                 message="Working tree executable bit does not match Git index",
+                filesystem_mode=file_info.mode,
+                git_index_mode=file_info.git_index_mode,
+                expected_executable=expected_executable(file_info),
+                detail=(
+                    "The working-tree owner execute bit differs from the mode Git will commit."
+                ),
             )
         return None

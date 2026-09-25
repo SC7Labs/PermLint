@@ -23,8 +23,9 @@ def test_walk_discovers_nested_regular_files(tmp_path: Path) -> None:
     assert len(files) == 2
 
 
-def test_walk_ignores_standard_directories(tmp_path: Path) -> None:
-    # Create ignored directories
+def test_walk_only_ignores_vcs_metadata_by_default(tmp_path: Path) -> None:
+    # VCS internals are ignored, but dependency and build trees are intentional
+    # scan targets unless the project explicitly excludes them.
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git" / "config").write_text("git config\n")
 
@@ -47,8 +48,15 @@ def test_walk_ignores_standard_directories(tmp_path: Path) -> None:
     (tmp_path / "main.py").write_text("print('main')\n")
 
     files = list(walk_repository(tmp_path))
-    assert len(files) == 1
-    assert files[0].rel_path == Path("main.py")
+    rel_paths = {file.rel_path for file in files}
+    assert rel_paths == {
+        Path("main.py"),
+        Path(".venv/bin/python"),
+        Path("node_modules/pkg/index.js"),
+        Path("__pycache__/file.pyc"),
+        Path("dist/bundle.whl"),
+        Path("target/output.bin"),
+    }
 
 
 def test_walk_does_not_follow_directory_symlinks(tmp_path: Path) -> None:

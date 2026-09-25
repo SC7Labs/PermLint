@@ -29,6 +29,10 @@ class Finding:
     path: Path
     severity: Severity
     message: str
+    filesystem_mode: int | None = None
+    git_index_mode: str | None = None
+    expected_executable: bool | None = None
+    detail: str | None = None
 
 
 class GitIndexStatus(StrEnum):
@@ -62,6 +66,8 @@ class ScanDiagnostics:
     """Directories that could not be entered. Each one hides a whole subtree."""
     files_unreadable: int = 0
     """Files whose contents a check needed but could not read."""
+    unmerged_index_paths: int = 0
+    """Paths with Git conflict stages, for which no single index mode exists."""
 
     @property
     def git_is_applicable(self) -> bool:
@@ -81,7 +87,12 @@ class ScanDiagnostics:
         A missing `git` executable or a failed `git` invocation do count — in
         both cases PL007 could not run somewhere it should have.
         """
-        if self.entries_skipped or self.directories_skipped or self.files_unreadable:
+        if (
+            self.entries_skipped
+            or self.directories_skipped
+            or self.files_unreadable
+            or self.unmerged_index_paths
+        ):
             return False
         return self.git_index_status in (
             GitIndexStatus.AVAILABLE,
@@ -102,6 +113,7 @@ class ScanResult:
     files_inspected: int = 0
     findings: list[Finding] = field(default_factory=list)
     diagnostics: ScanDiagnostics = field(default_factory=ScanDiagnostics)
+    policy_fail_on: str = "warning"
 
     @property
     def error_count(self) -> int:
@@ -127,15 +139,20 @@ class ScanResult:
     def exit_code(self) -> int:
         """Process exit code for this scan. The single source of truth.
 
-        * ``0`` — the scan completed and found nothing.
-        * ``1`` — findings exist, **or** the scan was incomplete.
-        * ``2`` — invalid target; raised as `InvalidTargetError` before a
-          `ScanResult` exists, and mapped by the CLI.
+        * ``0`` — the scan completed without policy-violating findings.
+        * ``1`` — findings violate the configured severity threshold.
+        * ``2`` — the scan was incomplete. Invalid targets and operational
+          errors are also mapped to 2 by the CLI.
 
-        An incomplete scan exits non-zero deliberately. In CI, "I found no
-        problems" and "I could not look" must not be the same signal: a broken
-        `git` or an unreadable subtree would otherwise turn into a green build.
+        An incomplete scan is operationally different from a policy violation.
+        In CI, "I found no problems" and "I could not look" must not be the
+        same signal: a broken Git command or unreadable subtree would otherwise
+        turn into a green build.
         """
-        if self.has_findings or not self.diagnostics.is_complete:
+        if not self.diagnostics.is_complete:
+            return 2
+        if self.policy_fail_on == "warning" and self.has_findings:
+            return 1
+        if self.policy_fail_on == "error" and self.error_count:
             return 1
         return 0

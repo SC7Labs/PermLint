@@ -27,6 +27,10 @@ Thank you for your interest in contributing to PermLint!
   ```bash
   ruff format --check .
   ```
+- Build wheel and source distribution:
+  ```bash
+  python -m build
+  ```
 - Format code:
   ```bash
   ruff format .
@@ -34,9 +38,9 @@ Thank you for your interest in contributing to PermLint!
 
 ## Check Architecture & Design
 
-PermLint performs single-pass traversal over the target repository. Checks must remain independent, deterministic, and safe.
+PermLint performs a single filesystem traversal and reads Git index metadata in bulk. Checks must remain independent, deterministic, and safe. The repair engine has a separate planning step; previews must never mutate files or the index.
 
-### Current v0.1.1 Rules:
+### Current Rules:
 - **PL001**: Shebang but not executable (`ERROR`)
 - **PL002**: Executable script without shebang (`WARN`)
 - **PL003**: Unexpected executable data/document file (`WARN`)
@@ -47,13 +51,15 @@ PermLint performs single-pass traversal over the target repository. Checks must 
 - **PL008**: Unexpected privilege bits (`ERROR`)
 
 ### Check Rules
-- Checks must never execute discovered files, invoke interpreters, evaluate text, or modify permissions.
+- Checks must never execute discovered files, invoke interpreters, or evaluate text.
 - Checks should be conservative to prevent false positives.
 - File reads must be bounded (avoid reading entire large files).
-- Subprocesses should not be spawned per file.
+- Scans should collect Git index data in bulk rather than spawn a subprocess per inspected file. The fixer may recheck each proposed repair.
+- Repairs must be limited to deterministic executable-bit changes, recheck file and Git state before applying, and never stage file contents or create commits.
 
 ## Pull Request Guidelines
 
 - Ensure all existing and new tests pass (`pytest`).
 - Ensure code passes `ruff check .` and `ruff format --check .`.
+- Exercise any repair change against a real temporary Git repository, including a dry run and staged-content preservation.
 - Keep changes minimal, well-documented, and focused on single objectives.

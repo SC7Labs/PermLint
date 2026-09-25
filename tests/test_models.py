@@ -57,7 +57,12 @@ def test_scan_result_with_findings() -> None:
             message="File type normally should not be executable",
         ),
     ]
-    result = ScanResult(target_path=Path("/tmp/repo"), files_inspected=10, findings=findings)
+    result = ScanResult(
+        target_path=Path("/tmp/repo"),
+        files_inspected=10,
+        findings=findings,
+        diagnostics=ScanDiagnostics(git_index_status=GitIndexStatus.AVAILABLE),
+    )
     assert result.has_findings
     assert result.total_findings == 2
     assert result.error_count == 1

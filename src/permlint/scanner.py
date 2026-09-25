@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 
 from permlint.checks import BaseCheck, get_default_checks
+from permlint.config import Config, load_config
 from permlint.filesystem import walk_repository
-from permlint.git import get_git_index_modes
+from permlint.git import get_git_index_snapshot
 from permlint.models import Finding, ScanDiagnostics, ScanResult
 
 
@@ -24,13 +26,16 @@ class InvalidTargetError(ValueError):
 class Scanner:
     """Orchestrates file discovery and check execution over a target directory."""
 
-    def __init__(self, checks: list[BaseCheck] | None = None) -> None:
+    def __init__(self, checks: list[BaseCheck] | None = None, config: Config | None = None) -> None:
         """Initialize Scanner with an optional list of checks.
 
         Args:
             checks: List of BaseCheck instances to execute. If None, uses default checks.
+            config: Optional configuration. If absent, the scan loads the target's
+                ``.permlint.toml`` when it exists.
         """
         self.checks: list[BaseCheck] = checks if checks is not None else get_default_checks()
+        self.config = config
 
     def scan(self, target_path: Path) -> ScanResult:
         """Scan target repository path and evaluate all configured checks against regular files.
@@ -51,7 +56,8 @@ class Scanner:
                 directory, or cannot be opened.
         """
         resolved_path = self._validate_target(target_path)
-        git_index_modes, git_status = get_git_index_modes(resolved_path)
+        config = self.config if self.config is not None else load_config(resolved_path)
+        git_snapshot = get_git_index_snapshot(resolved_path)
 
         files_inspected = 0
         unreadable = 0
@@ -61,14 +67,20 @@ class Scanner:
 
         for file_info in walk_repository(
             resolved_path,
-            git_index_modes=git_index_modes,
+            git_index_modes=git_snapshot.modes,
             skipped=skipped,
             directories_skipped=directories_skipped,
+            is_excluded=config.is_excluded,
         ):
             files_inspected += 1
             for check in self.checks:
+                if check.check_id in config.disabled_rules:
+                    continue
                 finding = check.inspect(file_info)
                 if finding is not None:
+                    override = config.severity_overrides.get(check.check_id)
+                    if override is not None:
+                        finding = replace(finding, severity=override)
                     findings.append(finding)
             # Asked after the checks have run, so only files a check actually
             # needed to read are counted.
@@ -79,11 +91,17 @@ class Scanner:
             target_path=resolved_path,
             files_inspected=files_inspected,
             findings=findings,
+            policy_fail_on=config.fail_on,
             diagnostics=ScanDiagnostics(
-                git_index_status=git_status,
+                git_index_status=git_snapshot.status,
                 entries_skipped=skipped[0],
                 directories_skipped=directories_skipped[0],
                 files_unreadable=unreadable,
+                unmerged_index_paths=sum(
+                    1
+                    for rel_path in git_snapshot.unmerged_paths
+                    if not config.is_excluded(rel_path)
+                ),
             ),
         )
 

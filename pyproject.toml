@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "permlint"
-version = "0.1.1"
-description = "Catch permission mistakes before they ship."
+version = "0.2.0"
+description = "Git-aware Unix permission auditing and safe repair."
 readme = "README.md"
 license = "MIT"
 authors = [
@@ -36,6 +36,7 @@ Repository = "https://github.com/SC7Labs/PermLint"
 
 [project.optional-dependencies]
 dev = [
+    "build>=1.2.0",
     "pytest>=8.0.0",
     "ruff>=0.8.0",
 ]
