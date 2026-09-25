@@ -190,11 +190,14 @@ def test_fail_on_error_allows_warning_only_scan(tmp_path: Path) -> None:
     assert payload["summary"]["exit_code"] == 0
 
 
-def test_upgrade_explains_distribution_limit_without_installing() -> None:
+def test_upgrade_cli_already_current(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "permlint.upgrade.fetch_latest_release",
+        lambda **_kwargs: {"tag_name": "v0.2.0", "draft": False, "prerelease": False},
+    )
     result = runner.invoke(app, ["upgrade"])
-    assert result.exit_code == 2
-    assert "no automatic upgrade channel" in result.output
-    assert "No self-update was attempted" in result.output
+    assert result.exit_code == 0
+    assert "already up to date" in result.output
 
 
 def test_fix_preview_explains_incomplete_scan(tmp_path: Path, monkeypatch) -> None:

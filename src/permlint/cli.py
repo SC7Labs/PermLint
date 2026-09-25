@@ -260,18 +260,15 @@ def explain(rule_id: Annotated[str, typer.Argument(help="Rule ID, for example PL
 
 @app.command()
 def upgrade() -> None:
-    """Explain how to update until a verified release channel exists."""
-    console = Console()
-    console.print("PermLint has no automatic upgrade channel yet.")
-    console.print("This build has no verified package index or release update channel.")
-    console.print("No self-update was attempted.")
-    console.print("Install a newer build from a trusted checkout with:")
-    console.print("  python -m pip install --upgrade /path/to/PermLint")
-    console.print("Once a GitHub release tag is published, install that specific tag with:")
-    console.print(
-        "  python -m pip install --upgrade 'git+https://github.com/SC7Labs/PermLint.git@vX.Y.Z'"
-    )
-    raise typer.Exit(code=2)
+    """Upgrade PermLint to the latest stable release from GitHub Releases."""
+    from permlint.upgrade import UpgradeError, perform_upgrade
+
+    try:
+        perform_upgrade()
+    except UpgradeError as exc:
+        raise typer.Exit(code=_error(str(exc))) from exc
+    except Exception as exc:
+        raise typer.Exit(code=_error(f"Upgrade failed: {exc}")) from exc
 
 
 def main() -> None:

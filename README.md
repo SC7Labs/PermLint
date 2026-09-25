@@ -27,7 +27,7 @@ python -m build
 python -m pip install --upgrade dist/permlint-0.2.0-py3-none-any.whl
 ~~~
 
-The installed command is a copy of the package. Editing a checkout does not update an existing non-editable installation. For development, use `python -m pip install -e ".[dev]"`. The `permlint upgrade` command exits 2 with installation guidance; it does not download or execute remote code.
+The installed command is a copy of the package. Editing a checkout does not update an existing non-editable installation. For development, use `python -m pip install -e ".[dev]"`. To upgrade an installation to the latest stable release from GitHub Releases, run `permlint upgrade`.
 
 ## Start here
 
